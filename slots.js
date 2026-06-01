@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 
 const FILE = path.join(__dirname, 'bookings.json');
+const SLOTS = ['1000', '1100', '1700', '2000'];
 
 function loadBookings() {
   if (!fs.existsSync(FILE)) return {};
@@ -17,17 +18,22 @@ function getAvailableDates() {
   const dates = [];
   const today = new Date();
 
-  for (let i = 1; i <= 14; i++) {
+  for (let i = 1; i <= 60; i++) {
     const date = new Date(today);
     date.setDate(today.getDate() + i);
+
+    // Only Tuesday (2) and Thursday (4)
+    const dow = date.getDay();
+    if (dow !== 2 && dow !== 4) continue;
+
     const key = formatDate(date);
+    const availableSlots = SLOTS.filter(slot => !bookings[`${key}_${slot}`]);
 
-    const morning = !bookings[`${key}_morning`];
-    const evening = !bookings[`${key}_evening`];
-
-    if (morning || evening) {
-      dates.push({ date, key, morning, evening });
+    if (availableSlots.length > 0) {
+      dates.push({ date, key, slots: availableSlots });
     }
+
+    if (dates.length >= 6) break;
   }
 
   return dates;
@@ -54,4 +60,14 @@ function formatDateRu(date) {
   return `${days[date.getDay()]}, ${date.getDate()} ${months[date.getMonth()]}`;
 }
 
-module.exports = { getAvailableDates, book, formatDate, formatDateRu };
+function slotLabel(slot) {
+  const labels = {
+    '1000': '10:00 🌅',
+    '1100': '11:00 🌅',
+    '1700': '17:00 🌙',
+    '2000': '20:00 🌙',
+  };
+  return labels[slot] || slot;
+}
+
+module.exports = { getAvailableDates, book, formatDate, formatDateRu, slotLabel };
