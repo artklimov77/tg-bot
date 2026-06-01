@@ -54,11 +54,14 @@ bot.action('book', async (ctx) => {
     return ctx.reply('Свободных дат пока нет. Напиши мне напрямую, договоримся 🙏');
   }
 
-  const buttons = dates.flatMap(({ date, key, slots }) => {
+  const buttons = dates.slice(0, 4).flatMap(({ date, key, slots }) => {
     const label = formatDateRu(date);
-    return slots.map(slot =>
-      [Markup.button.callback(`${label} — ${slotLabel(slot)}`, `slot_${key}_${slot}`)]
-    );
+    const morning = slots.filter(s => s === '1000' || s === '1100');
+    const evening = slots.filter(s => s === '1700' || s === '2000');
+    const rows = [];
+    if (morning.length) rows.push(morning.map(s => Markup.button.callback(`${label} ${slotLabel(s)}`, `slot_${key}_${s}`)));
+    if (evening.length) rows.push(evening.map(s => Markup.button.callback(`${label} ${slotLabel(s)}`, `slot_${key}_${s}`)));
+    return rows;
   });
 
   await ctx.reply(
