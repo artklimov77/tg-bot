@@ -22,7 +22,6 @@ function getAvailableDates() {
     const date = new Date(today);
     date.setDate(today.getDate() + i);
 
-    // Only Tuesday (2) and Thursday (4)
     const dow = date.getDay();
     if (dow !== 2 && dow !== 4) continue;
 
@@ -39,12 +38,38 @@ function getAvailableDates() {
   return dates;
 }
 
+function getUserBooking(userId) {
+  const bookings = loadBookings();
+  for (const [slotKey, val] of Object.entries(bookings)) {
+    if (val.userId === userId) return { slotKey, ...val };
+  }
+  return null;
+}
+
+function getAllUpcomingBookings() {
+  const bookings = loadBookings();
+  const today = formatDate(new Date());
+  return Object.entries(bookings)
+    .filter(([key]) => key.split('_')[0] >= today)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([slotKey, val]) => ({ slotKey, ...val }));
+}
+
 function book(slotKey, userId, userName) {
   const bookings = loadBookings();
   if (bookings[slotKey]) return false;
   bookings[slotKey] = { userId, userName, bookedAt: new Date().toISOString() };
   saveBookings(bookings);
   return true;
+}
+
+function cancelBooking(slotKey) {
+  const bookings = loadBookings();
+  if (!bookings[slotKey]) return null;
+  const booking = bookings[slotKey];
+  delete bookings[slotKey];
+  saveBookings(bookings);
+  return booking;
 }
 
 function formatDate(date) {
@@ -70,4 +95,21 @@ function slotLabel(slot) {
   return labels[slot] || slot;
 }
 
-module.exports = { getAvailableDates, book, formatDate, formatDateRu, slotLabel };
+function formatSlotKeyRu(slotKey) {
+  const [dateKey, slot] = slotKey.split('_');
+  const [year, month, day] = dateKey.split('-');
+  const date = new Date(year, month - 1, day);
+  return `${formatDateRu(date)}, ${slotLabel(slot)}`;
+}
+
+module.exports = {
+  getAvailableDates,
+  getUserBooking,
+  getAllUpcomingBookings,
+  book,
+  cancelBooking,
+  formatDate,
+  formatDateRu,
+  slotLabel,
+  formatSlotKeyRu,
+};

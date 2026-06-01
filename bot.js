@@ -1,9 +1,22 @@
 require('dotenv').config();
 const { Telegraf, Markup } = require('telegraf');
-const { getAvailableDates, book, formatDateRu, slotLabel } = require('./slots');
+const {
+  getAvailableDates,
+  getUserBooking,
+  getAllUpcomingBookings,
+  book,
+  cancelBooking,
+  formatDateRu,
+  slotLabel,
+  formatSlotKeyRu,
+} = require('./slots');
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
 const ADMIN_ID = process.env.ADMIN_CHAT_ID;
+
+function isAdmin(ctx) {
+  return String(ctx.from.id) === String(ADMIN_ID);
+}
 
 const WELCOME_TEXT = `🐱 *Денежная игра «Кот Шрёдингера»*
 
@@ -37,21 +50,37 @@ const WELCOME_TEXT = `🐱 *Денежная игра «Кот Шрёдинге�
 
 ⏱ Длительность: 45 минут`;
 
+const mainMenu = Markup.inlineKeyboard([
+  [Markup.button.callback('📅 Записаться', 'book')],
+  [Markup.button.callback('📋 Моя запись', 'mybooking')],
+]);
+
 bot.start((ctx) => {
-  ctx.replyWithMarkdown(
-    WELCOME_TEXT,
-    Markup.inlineKeyboard([
-      [Markup.button.callback('📅 Записаться', 'book')]
-    ])
-  );
+  ctx.replyWithMarkdown(WELCOME_TEXT, mainMenu);
+});
+
+bot.action('start', async (ctx) => {
+  await ctx.answerCbQuery();
+  await ctx.replyWithMarkdown(WELCOME_TEXT, mainMenu);
 });
 
 bot.action('book', async (ctx) => {
   await ctx.answerCbQuery();
-  const dates = getAvailableDates();
 
+  const existing = getUserBooking(ctx.from.id);
+  if (existing) {
+    return ctx.replyWithMarkdown(
+      `У тебя уже есть запись: *${formatSlotKeyRu(existing.slotKey)}*\n\nХочешь отменить и выбрать другое время?`,
+      Markup.inlineKeyboard([
+        [Markup.button.callback('❌ Отменить запись', `cancel_${existing.slotKey}`)],
+        [Markup.button.callback('🏠 На главную', 'start')],
+      ])
+    );
+  }
+
+  const dates = getAvailableDates();
   if (dates.length === 0) {
-    return ctx.reply('Свободных дат пока нет. Напиши мне напрямую, договоримся 🙏');
+    return ctx.reply('Свободных дат пока нет. Напиши мне напрямую, договоримся 🙏', mainMenu);
   }
 
   const buttons = dates.slice(0, 4).flatMap(({ date, key, slots }) => {
@@ -64,9 +93,25 @@ bot.action('book', async (ctx) => {
     return rows;
   });
 
-  await ctx.reply(
-    'Выбери удобное время:',
-    Markup.inlineKeyboard(buttons)
+  buttons.push([Markup.button.callback('🏠 На главную', 'start')]);
+
+  await ctx.reply('Выбери удобное время:', Markup.inlineKeyboard(buttons));
+});
+
+bot.action('mybooking', async (ctx) => {
+  await ctx.answerCbQuery();
+
+  const existing = getUserBooking(ctx.from.id);
+  if (!existing) {
+    return ctx.reply('У тебя пока нет записей 🙂', mainMenu);
+  }
+
+  await ctx.replyWithMarkdown(
+    `📋 *Твоя запись:*\n\n📅 ${formatSlotKeyRu(existing.slotKey)}\n⏱ 45 минут`,
+    Markup.inlineKeyboard([
+      [Markup.button.callback('❌ Отменить запись', `cancel_${existing.slotKey}`)],
+      [Markup.button.callback('🏠 На главную', 'start')],
+    ])
   );
 });
 
@@ -83,7 +128,7 @@ bot.action(/^slot_(\d{4}-\d{2}-\d{2})_(\d{4})$/, async (ctx) => {
 
   if (!success) {
     return ctx.reply('Этот слот уже занят. Выбери другое время 👇', Markup.inlineKeyboard([
-      [Markup.button.callback('← Посмотреть другие даты', 'book')]
+      [Markup.button.callback('← Другие даты', 'book')],
     ]));
   }
 
@@ -93,7 +138,11 @@ bot.action(/^slot_(\d{4}-\d{2}-\d{2})_(\d{4})$/, async (ctx) => {
   const timeStr = slotLabel(slot);
 
   await ctx.replyWithMarkdown(
-    `✅ *Отлично, записала тебя!*\n\n📅 ${dateStr}, ${timeStr}\n⏱ 45 минут\n\nСкоро напишу тебе с деталями 🐱`
+    `✅ *Отлично, записала тебя!*\n\n📅 ${dateStr}, ${timeStr}\n⏱ 45 минут\n\nСкоро напишу тебе с деталями 🐱`,
+    Markup.inlineKeyboard([
+      [Markup.button.callback('📋 Моя запись', 'mybooking')],
+      [Markup.button.callback('🏠 На главную', 'start')],
+    ])
   );
 
   if (ADMIN_ID && ADMIN_ID !== 'your_telegram_chat_id_here') {
@@ -102,6 +151,70 @@ bot.action(/^slot_(\d{4}-\d{2}-\d{2})_(\d{4})$/, async (ctx) => {
       ADMIN_ID,
       `🔔 Новая запись!\n\nКлиент: ${tgLink}\nДата: ${dateStr}\nВремя: ${timeStr}`
     );
+  }
+});
+
+bot.action(/^cancel_(\d{4}-\d{2}-\d{2}_\d{4})$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const slotKey = ctx.match[1];
+  const booking = cancelBooking(slotKey);
+
+  if (!booking) {
+    return ctx.reply('Запись не найдена.', mainMenu);
+  }
+
+  const slotStr = formatSlotKeyRu(slotKey);
+  await ctx.replyWithMarkdown(
+    `Запись на *${slotStr}* отменена.\n\nЕсли хочешь выбрать другое время — жми кнопку ниже.`,
+    mainMenu
+  );
+
+  if (ADMIN_ID && ADMIN_ID !== 'your_telegram_chat_id_here') {
+    await bot.telegram.sendMessage(
+      ADMIN_ID,
+      `❌ Клиент ${booking.userName} отменил запись\n\nДата: ${slotStr}`
+    );
+  }
+});
+
+bot.command('admin', async (ctx) => {
+  if (!isAdmin(ctx)) return;
+
+  const bookings = getAllUpcomingBookings();
+  if (bookings.length === 0) {
+    return ctx.reply('Записей пока нет 🙂');
+  }
+
+  const lines = bookings.map(b => `• ${formatSlotKeyRu(b.slotKey)} — ${b.userName}`).join('\n');
+  const buttons = bookings.map(b => [
+    Markup.button.callback(`❌ ${formatSlotKeyRu(b.slotKey)} — ${b.userName}`, `adm_cancel_${b.slotKey}`),
+  ]);
+
+  await ctx.replyWithMarkdown(`📋 *Все записи:*\n\n${lines}`, Markup.inlineKeyboard(buttons));
+});
+
+bot.action(/^adm_cancel_(\d{4}-\d{2}-\d{2}_\d{4})$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  if (!isAdmin(ctx)) return;
+
+  const slotKey = ctx.match[1];
+  const booking = cancelBooking(slotKey);
+
+  if (!booking) {
+    return ctx.reply('Запись не найдена.');
+  }
+
+  const slotStr = formatSlotKeyRu(slotKey);
+  await ctx.reply(`✅ Запись ${booking.userName} на ${slotStr} отменена.`);
+
+  try {
+    await bot.telegram.sendMessage(
+      booking.userId,
+      `😔 Твоя запись на *${slotStr}* была отменена.\n\nВыбери другое удобное время:`,
+      { parse_mode: 'Markdown', ...mainMenu }
+    );
+  } catch (e) {
+    // пользователь мог заблокировать бота
   }
 });
 
