@@ -54,10 +54,10 @@ bot.action('book', async (ctx) => {
     return ctx.reply('Свободных дат пока нет. Напиши мне напрямую, договоримся 🙏');
   }
 
-  const buttons = dates.map(({ date, key, slots }) => {
+  const buttons = dates.flatMap(({ date, key, slots }) => {
     const label = formatDateRu(date);
     return slots.map(slot =>
-      Markup.button.callback(`${label} — ${slotLabel(slot)}`, `slot_${key}_${slot}`)
+      [Markup.button.callback(`${label} — ${slotLabel(slot)}`, `slot_${key}_${slot}`)]
     );
   });
 
